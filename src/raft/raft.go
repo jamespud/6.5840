@@ -56,6 +56,7 @@ type ApplyMsg struct {
 	CommandValid bool
 	Command      interface{}
 	CommandIndex int
+	CommandTerm  int
 
 	// For 3D:
 	SnapshotValid bool
@@ -711,6 +712,7 @@ func (rf *Raft) applyLogs() {
 					CommandValid: true,
 					Command:      rf.logs[i-rf.logs[0].Index].Command,
 					CommandIndex: i,
+					CommandTerm:  rf.logs[i-rf.logs[0].Index].Term,
 				})
 			}
 			commitIndex := rf.commitIndex
