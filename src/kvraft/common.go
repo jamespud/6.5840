@@ -95,7 +95,7 @@ type OpReply struct {
 
 type OpContext struct {
 	SerialNum   int64
-	lastOpReply *OpReply
+	LastOpReply *OpReply
 }
 
 type KVStateMachine interface {
@@ -105,30 +105,30 @@ type KVStateMachine interface {
 }
 
 type MemoryKV struct {
-	kv map[string]string
+	KV map[string]string
 }
 
 func newMemoryKV() *MemoryKV {
 	return &MemoryKV{
-		kv: make(map[string]string),
+		KV: make(map[string]string),
 	}
 }
 
 func (mKV *MemoryKV) Get(key string) (string, Err) {
-	if value, ok := mKV.kv[key]; ok {
+	if value, ok := mKV.KV[key]; ok {
 		return value, OK
 	}
 	return "", ErrNoKey
 }
 
 func (mKV *MemoryKV) Put(key, value string) Err {
-	mKV.kv[key] = value
-	DPrintf("MemoryKV Put key [%s] value [%s] to [%s]", key, value, mKV.kv[key])
+	mKV.KV[key] = value
+	DPrintf("MemoryKV Put key [%s] value [%s] to [%s]", key, value, mKV.KV[key])
 	return OK
 }
 
 func (mKV *MemoryKV) Append(key, value string) Err {
-	mKV.kv[key] += value
-	DPrintf("MemoryKV Append key [%s] value [%s] to [%s]", key, value, mKV.kv[key])
+	mKV.KV[key] += value
+	DPrintf("MemoryKV Append key [%s] value [%s] to [%s]", key, value, mKV.KV[key])
 	return OK
 }

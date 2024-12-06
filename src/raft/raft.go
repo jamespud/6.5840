@@ -161,8 +161,12 @@ func (rf *Raft) readPersist(data []byte) {
 func (rf *Raft) discardLogs(term int, index int) {
 	headLog, tailLog := rf.getHeadAndTailLog()
 	newLog := make([]Entry, 1)
-	if index <= tailLog.Index {
+	if index >= tailLog.Index {
+		// NOOP
+	} else if index >= headLog.Index {
 		newLog = append(newLog, rf.logs[index-headLog.Index+1:]...)
+	} else {
+		return
 	}
 	rf.logs = newLog
 	rf.logs[0] = Entry{Term: term, Index: index}
@@ -290,9 +294,13 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 
 	rf.changeState(Follower)
 
-	if args.PrevLogIndex > tailLog.Index || args.PrevLogIndex < headLog.Index-1 {
-		// args.PrevLogIndex isn't in follower's logs
+	if args.PrevLogIndex > tailLog.Index {
 		reply.Term, reply.Success, reply.FirstIndex = rf.currentTerm, false, tailLog.Index+1
+		return
+	}
+
+	if args.PrevLogIndex < headLog.Index {
+		reply.Term, reply.Success, reply.FirstIndex = rf.currentTerm, false, -1
 		return
 	}
 

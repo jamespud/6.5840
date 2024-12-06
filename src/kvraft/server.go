@@ -1,6 +1,7 @@
 package kvraft
 
 import (
+	"bytes"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -22,7 +23,7 @@ type KVServer struct {
 	persister    *raft.Persister
 
 	// Your definitions here.
-	stateMachine KVStateMachine        // store kv
+	stateMachine KVStateMachine        // store KV
 	lastOp       map[int64]OpContext   // store the last operation serial number of each client
 	notifyChs    map[int]chan *OpReply // store the channel for each raft client to receive operation results
 }
@@ -77,7 +78,7 @@ func (kv *KVServer) Append(args *PutAppendArgs, reply *PutAppendReply) {
 func (kv *KVServer) executeCommand(args *Op, reply *OpReply) {
 	kv.mu.RLock()
 	if args.OpType != GetOp && kv.checkDuplicated(args.ClientId, args.SerialNum) {
-		lastReply := kv.lastOp[args.ClientId].lastOpReply
+		lastReply := kv.lastOp[args.ClientId].LastOpReply
 		reply.Value, reply.Err = lastReply.Value, lastReply.Err
 		kv.mu.RUnlock()
 		return
@@ -140,6 +141,29 @@ func (kv *KVServer) applyLogToStateMachine(op Op) *OpReply {
 	return reply
 }
 
+func (kv *KVServer) takeSnapshot(index int) {
+	w := new(bytes.Buffer)
+	e := labgob.NewEncoder(w)
+	e.Encode(kv.stateMachine)
+	e.Encode(kv.lastOp)
+	data := w.Bytes()
+	kv.rf.Snapshot(index, data)
+}
+
+func (kv *KVServer) readPersist(snapshot []byte) {
+	if snapshot == nil || len(snapshot) < 1 {
+		return
+	}
+	r := bytes.NewBuffer(snapshot)
+	d := labgob.NewDecoder(r)
+	var stateMachine MemoryKV
+	var lastOperations map[int64]OpContext
+	if d.Decode(&stateMachine) != nil || d.Decode(&lastOperations) != nil {
+		panic("Failed to restore state from snapshot")
+	}
+	kv.stateMachine, kv.lastOp = &stateMachine, lastOperations
+}
+
 func (kv *KVServer) applier() {
 	for kv.killed() == false {
 		select {
@@ -155,13 +179,13 @@ func (kv *KVServer) applier() {
 				reply := new(OpReply)
 				command := message.Command.(Command).Op
 				if command.OpType != GetOp && kv.checkDuplicated(command.ClientId, command.SerialNum) {
-					reply = kv.lastOp[command.ClientId].lastOpReply
+					reply = kv.lastOp[command.ClientId].LastOpReply
 				} else {
 					reply = kv.applyLogToStateMachine(*command)
 					if command.OpType != GetOp {
 						kv.lastOp[command.ClientId] = OpContext{
 							SerialNum:   command.SerialNum,
-							lastOpReply: reply,
+							LastOpReply: reply,
 						}
 					}
 				}
@@ -169,6 +193,13 @@ func (kv *KVServer) applier() {
 					ch := kv.getNotifyCh(message.CommandIndex)
 					ch <- reply
 				}
+				if kv.maxraftstate != -1 && kv.persister.RaftStateSize() > kv.maxraftstate {
+					kv.takeSnapshot(message.CommandIndex)
+				}
+				kv.mu.Unlock()
+			} else if message.SnapshotValid {
+				kv.mu.Lock()
+				kv.readPersist(message.Snapshot)
 				kv.mu.Unlock()
 			}
 		}
@@ -226,6 +257,7 @@ func StartKVServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persiste
 	kv.lastOp = make(map[int64]OpContext)
 	kv.notifyChs = make(map[int]chan *OpReply)
 	kv.persister = persister
+	kv.readPersist(kv.persister.ReadSnapshot())
 
 	go kv.applier()
 
