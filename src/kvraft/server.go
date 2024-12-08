@@ -104,7 +104,6 @@ func (kv *KVServer) executeCommand(args *Op, reply *OpReply) {
 		kv.deleteNotifyCh(index)
 		kv.mu.Unlock()
 	}()
-
 }
 
 func (kv *KVServer) getNotifyCh(index int) chan *OpReply {
